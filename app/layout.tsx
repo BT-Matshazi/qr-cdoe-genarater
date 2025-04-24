@@ -7,7 +7,7 @@ import { Toaster } from '@/components/ui/toaster';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Bekis QR Code Generator',
+  title: 'Hi Lemon',
   description: 'Generate and download QR codes for any URL',
 };
 
