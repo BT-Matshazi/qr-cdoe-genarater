@@ -4,14 +4,27 @@ import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
 import { toast } from "@/components/ui/use-toast";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QRCodeSettings } from "./qr-code-settings";
 import { RecentQRCodes } from "./recent-qr-codes";
-import { Loader2, Download, Copy, RefreshCw, Link as LinkIcon } from "lucide-react";
+import {
+  Loader2,
+  Download,
+  Copy,
+  RefreshCw,
+  Link as LinkIcon,
+} from "lucide-react";
 
 export function QRCodeGenerator() {
   const [url, setUrl] = useState("");
@@ -23,7 +36,7 @@ export function QRCodeGenerator() {
   const [fgColor, setFgColor] = useState("#000000");
   const [bgColor, setBgColor] = useState("#FFFFFF");
   const [includeMargin, setIncludeMargin] = useState(true);
-  
+
   const qrRef = useRef<HTMLDivElement>(null);
 
   const isValidUrl = (urlString: string): boolean => {
@@ -47,7 +60,7 @@ export function QRCodeGenerator() {
     }
 
     const formattedUrl = url.startsWith("http") ? url : `https://${url}`;
-    
+
     if (!isValidUrl(formattedUrl)) {
       toast({
         title: "Invalid URL",
@@ -60,26 +73,26 @@ export function QRCodeGenerator() {
 
     setIsError(false);
     setIsGenerating(true);
-    
+
     // Simulate a short delay for better UX
     setTimeout(() => {
       setQrUrl(formattedUrl);
-      
+
       // Add to recent QR codes if not already in the list
       if (!recentUrls.includes(formattedUrl)) {
         setRecentUrls((prev) => [formattedUrl, ...prev].slice(0, 5));
       }
-      
+
       setIsGenerating(false);
     }, 600);
   };
 
   const handleDownload = () => {
     if (!qrRef.current) return;
-    
+
     const canvas = qrRef.current.querySelector("canvas");
     if (!canvas) return;
-    
+
     // Create a temporary link element
     const link = document.createElement("a");
     link.download = `qrcode-${new Date().getTime()}.png`;
@@ -87,7 +100,7 @@ export function QRCodeGenerator() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     toast({
       title: "QR Code Downloaded",
       description: "Your QR code has been downloaded successfully",
@@ -96,17 +109,17 @@ export function QRCodeGenerator() {
 
   const copyToClipboard = async () => {
     if (!qrRef.current) return;
-    
+
     const canvas = qrRef.current.querySelector("canvas");
     if (!canvas) return;
-    
+
     try {
       canvas.toBlob(async (blob) => {
         if (!blob) return;
-        
+
         const item = new ClipboardItem({ "image/png": blob });
         await navigator.clipboard.write([item]);
-        
+
         toast({
           title: "Copied to clipboard",
           description: "QR code image copied to clipboard",
@@ -130,18 +143,20 @@ export function QRCodeGenerator() {
   return (
     <Card className="w-full max-w-xl mx-auto">
       <CardHeader>
-        <CardTitle className="text-2xl font-bold text-center">QR Code Generator</CardTitle>
+        <CardTitle className="text-2xl font-bold text-center">
+          QR Code Generator
+        </CardTitle>
         <CardDescription className="text-center">
           Enter a URL to generate a QR code that you can download
         </CardDescription>
       </CardHeader>
-      
+
       <Tabs defaultValue="generate" className="w-full">
         <TabsList className="grid grid-cols-2 mx-6">
           <TabsTrigger value="generate">Generate</TabsTrigger>
           <TabsTrigger value="history">Recent</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="generate">
           <CardContent className="space-y-6 pt-6">
             <div className="space-y-2">
@@ -169,8 +184,8 @@ export function QRCodeGenerator() {
                 </Button>
               </div>
             </div>
-            
-            <QRCodeSettings 
+
+            <QRCodeSettings
               qrSize={qrSize}
               setQrSize={setQrSize}
               fgColor={fgColor}
@@ -180,7 +195,7 @@ export function QRCodeGenerator() {
               includeMargin={includeMargin}
               setIncludeMargin={setIncludeMargin}
             />
-            
+
             <div className="flex justify-center" ref={qrRef}>
               <AnimatePresence mode="wait">
                 {qrUrl ? (
@@ -202,13 +217,12 @@ export function QRCodeGenerator() {
                       className="mx-auto"
                       imageSettings={{
                         src: "",
-                        x: undefined,
-                        y: undefined,
-                        height: undefined,
-                        width: undefined,
+                        x: 0,
+                        y: 0,
+                        height: 0,
+                        width: 0,
                         excavate: true,
                       }}
-                      renderAs="canvas"
                       style={{ shapeRendering: "geometricPrecision" }}
                     />
                   </motion.div>
@@ -229,13 +243,9 @@ export function QRCodeGenerator() {
               </AnimatePresence>
             </div>
           </CardContent>
-          
+
           <CardFooter className="flex justify-center space-x-2 pt-0">
-            <Button
-              variant="outline"
-              onClick={resetForm}
-              disabled={!qrUrl}
-            >
+            <Button variant="outline" onClick={resetForm} disabled={!qrUrl}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Reset
             </Button>
@@ -247,21 +257,18 @@ export function QRCodeGenerator() {
               <Copy className="mr-2 h-4 w-4" />
               Copy
             </Button>
-            <Button
-              onClick={handleDownload}
-              disabled={!qrUrl}
-            >
+            <Button onClick={handleDownload} disabled={!qrUrl}>
               <Download className="mr-2 h-4 w-4" />
               Download
             </Button>
           </CardFooter>
         </TabsContent>
-        
+
         <TabsContent value="history">
-          <RecentQRCodes 
-            recentUrls={recentUrls} 
-            setUrl={setUrl} 
-            generateQRCode={generateQRCode} 
+          <RecentQRCodes
+            recentUrls={recentUrls}
+            setUrl={setUrl}
+            generateQRCode={generateQRCode}
           />
         </TabsContent>
       </Tabs>
