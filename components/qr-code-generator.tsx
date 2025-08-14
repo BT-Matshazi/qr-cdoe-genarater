@@ -1,277 +1,562 @@
-"use client";
+"use client"
 
-import { useState, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { QRCodeCanvas } from "qrcode.react";
-import { toast } from "@/components/ui/use-toast";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { QRCodeSettings } from "./qr-code-settings";
-import { RecentQRCodes } from "./recent-qr-codes";
-import {
-  Loader2,
-  Download,
-  Copy,
-  RefreshCw,
-  Link as LinkIcon,
-} from "lucide-react";
+import type React from "react"
+
+// Define QRCode types to avoid 'any'
+type QRCodeModules = {
+    size: number;
+    get: (row: number, col: number) => boolean | number;
+};
+
+type QRCodeType = {
+    modules: QRCodeModules;
+};
+
+import { useState, useRef, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Upload, Download, QrCode } from "lucide-react"
+import { toast } from "sonner"
+import Image from "next/image"
+
+type PatternType =
+    | "square"
+    | "rounded"
+    | "circle"
+    | "diamond"
+    | "dots"
+    | "hexagon"
+    | "star"
+    | "cross"
+    | "plus"
+    | "fluid"
 
 export function QRCodeGenerator() {
-  const [url, setUrl] = useState("");
-  const [qrUrl, setQrUrl] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [recentUrls, setRecentUrls] = useState<string[]>([]);
-  const [isError, setIsError] = useState(false);
-  const [qrSize, setQrSize] = useState(256);
-  const [fgColor, setFgColor] = useState("#000000");
-  const [bgColor, setBgColor] = useState("#FFFFFF");
-  const [includeMargin, setIncludeMargin] = useState(true);
+    const [text, setText] = useState("")
+    const [logo, setLogo] = useState<File | null>(null)
+    const [logoPreview, setLogoPreview] = useState<string | null>(null)
+    const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null)
+    const [isGenerating, setIsGenerating] = useState(false)
+    const [pattern, setPattern] = useState<PatternType>("square")
+    const [dotColor, setDotColor] = useState("#000000")
+    const [transparentBackground, setTransparentBackground] = useState(false)
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const qrRef = useRef<HTMLDivElement>(null);
 
-  const isValidUrl = (urlString: string): boolean => {
-    try {
-      new URL(urlString);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  };
+    const handleLogoUpload = useCallback(
+        (event: React.ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0]
+            if (file) {
+                if (!file.type.startsWith("image/")) {
+                    toast.error("Invalid file type", {
+                        description: "Please upload an image file (PNG, JPG, etc.)"
+                    })
+                    return
+                }
 
-  const generateQRCode = () => {
-    if (!url) {
-      toast({
-        title: "URL is required",
-        description: "Please enter a URL to generate a QR code",
-        variant: "destructive",
-      });
-      setIsError(true);
-      return;
-    }
+                setLogo(file)
+                const reader = new FileReader()
+                reader.onload = (e) => {
+                    setLogoPreview(e.target?.result as string)
+                }
+                reader.readAsDataURL(file)
+            }
+        },
+        [],
+    )
 
-    const formattedUrl = url.startsWith("http") ? url : `https://${url}`;
+    const drawCustomQRCode = useCallback(
+        (canvas: HTMLCanvasElement, qrData: QRCodeType, pattern: PatternType, color: string) => {
+            const ctx = canvas.getContext("2d")
+            if (!ctx) return
 
-    if (!isValidUrl(formattedUrl)) {
-      toast({
-        title: "Invalid URL",
-        description: "Please enter a valid URL",
-        variant: "destructive",
-      });
-      setIsError(true);
-      return;
-    }
+            const size = canvas.width
+            const margin = 96
+            const qrSize = size - margin * 2
+            const moduleCount = qrData.modules.size
+            const moduleSize = qrSize / moduleCount
 
-    setIsError(false);
-    setIsGenerating(true);
+            ctx.imageSmoothingEnabled = true
+            ctx.imageSmoothingQuality = "high"
 
-    // Simulate a short delay for better UX
-    setTimeout(() => {
-      setQrUrl(formattedUrl);
+            // Clear canvas with transparent or white background
+            if (transparentBackground) {
+                ctx.clearRect(0, 0, size, size)
+            } else {
+                ctx.fillStyle = "#FFFFFF"
+                ctx.fillRect(0, 0, size, size)
+            }
 
-      // Add to recent QR codes if not already in the list
-      if (!recentUrls.includes(formattedUrl)) {
-        setRecentUrls((prev) => [formattedUrl, ...prev].slice(0, 5));
-      }
+            ctx.fillStyle = color
 
-      setIsGenerating(false);
-    }, 600);
-  };
+            if (pattern === "fluid") {
+                // Create a map of active modules for fluid pattern
+                const activeModules = new Set<string>()
+                for (let row = 0; row < moduleCount; row++) {
+                    for (let col = 0; col < moduleCount; col++) {
+                        if (qrData.modules.get(row, col)) {
+                            const centerX = moduleCount / 2
+                            const centerY = moduleCount / 2
+                            const logoRadius = moduleCount * 0.2
+                            const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
 
-  const handleDownload = () => {
-    if (!qrRef.current) return;
+                            if (distance >= logoRadius) {
+                                activeModules.add(`${row},${col}`)
+                            }
+                        }
+                    }
+                }
 
-    const canvas = qrRef.current.querySelector("canvas");
-    if (!canvas) return;
+                // Draw fluid connections
+                ctx.beginPath()
+                for (let row = 0; row < moduleCount; row++) {
+                    for (let col = 0; col < moduleCount; col++) {
+                        if (activeModules.has(`${row},${col}`)) {
+                            const x = margin + col * moduleSize + moduleSize / 2
+                            const y = margin + row * moduleSize + moduleSize / 2
 
-    // Create a temporary link element
-    const link = document.createElement("a");
-    link.download = `qrcode-${new Date().getTime()}.png`;
-    link.href = canvas.toDataURL("image/png");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+                            // Check for adjacent modules and create flowing connections
+                            const hasRight = activeModules.has(`${row},${col + 1}`)
+                            const hasDown = activeModules.has(`${row + 1},${col}`)
+                            // These variables are used for future enhancements
+                            // const hasLeft = activeModules.has(`${row},${col - 1}`)
+                            // const hasUp = activeModules.has(`${row - 1},${col}`)
 
-    toast({
-      title: "QR Code Downloaded",
-      description: "Your QR code has been downloaded successfully",
-    });
-  };
+                            // Draw rounded rectangle for the module
+                            ctx.roundRect(
+                                x - moduleSize * 0.4,
+                                y - moduleSize * 0.4,
+                                moduleSize * 0.8,
+                                moduleSize * 0.8,
+                                moduleSize * 0.2,
+                            )
 
-  const copyToClipboard = async () => {
-    if (!qrRef.current) return;
+                            // Add connecting bridges to adjacent modules
+                            if (hasRight) {
+                                ctx.roundRect(
+                                    x + moduleSize * 0.2,
+                                    y - moduleSize * 0.15,
+                                    moduleSize * 0.6,
+                                    moduleSize * 0.3,
+                                    moduleSize * 0.1,
+                                )
+                            }
+                            if (hasDown) {
+                                ctx.roundRect(
+                                    x - moduleSize * 0.15,
+                                    y + moduleSize * 0.2,
+                                    moduleSize * 0.3,
+                                    moduleSize * 0.6,
+                                    moduleSize * 0.1,
+                                )
+                            }
+                        }
+                    }
+                }
+                ctx.fill()
+                return
+            }
 
-    const canvas = qrRef.current.querySelector("canvas");
-    if (!canvas) return;
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (qrData.modules.get(row, col)) {
+                        const x = margin + col * moduleSize
+                        const y = margin + row * moduleSize
 
-    try {
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
+                        // Skip drawing in the center area where logo will be placed
+                        const centerX = moduleCount / 2
+                        const centerY = moduleCount / 2
+                        const logoRadius = moduleCount * 0.2
+                        const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
 
-        const item = new ClipboardItem({ "image/png": blob });
-        await navigator.clipboard.write([item]);
+                        if (distance < logoRadius) continue
 
-        toast({
-          title: "Copied to clipboard",
-          description: "QR code image copied to clipboard",
-        });
-      });
-    } catch (err) {
-      toast({
-        title: "Failed to copy",
-        description: "Your browser doesn't support clipboard API",
-        variant: "destructive",
-      });
-    }
-  };
+                        // Draw different patterns with high precision
+                        switch (pattern) {
+                            case "square":
+                                ctx.fillRect(x, y, moduleSize, moduleSize)
+                                break
+                            case "rounded":
+                                ctx.beginPath()
+                                const radius = moduleSize * 0.3
+                                ctx.roundRect(x, y, moduleSize, moduleSize, radius)
+                                ctx.fill()
+                                break
+                            case "circle":
+                                ctx.beginPath()
+                                ctx.arc(x + moduleSize / 2, y + moduleSize / 2, moduleSize / 2.2, 0, 2 * Math.PI)
+                                ctx.fill()
+                                break
+                            case "diamond":
+                                ctx.beginPath()
+                                ctx.moveTo(x + moduleSize / 2, y)
+                                ctx.lineTo(x + moduleSize, y + moduleSize / 2)
+                                ctx.lineTo(x + moduleSize / 2, y + moduleSize)
+                                ctx.lineTo(x, y + moduleSize / 2)
+                                ctx.closePath()
+                                ctx.fill()
+                                break
+                            case "dots":
+                                ctx.beginPath()
+                                ctx.arc(x + moduleSize / 2, y + moduleSize / 2, moduleSize / 3, 0, 2 * Math.PI)
+                                ctx.fill()
+                                break
+                            case "hexagon":
+                                ctx.beginPath()
+                                const hexRadius = moduleSize / 2.5
+                                const centerXHex = x + moduleSize / 2
+                                const centerYHex = y + moduleSize / 2
+                                for (let i = 0; i < 6; i++) {
+                                    const angle = (i * Math.PI) / 3
+                                    const hexX = centerXHex + hexRadius * Math.cos(angle)
+                                    const hexY = centerYHex + hexRadius * Math.sin(angle)
+                                    if (i === 0) ctx.moveTo(hexX, hexY)
+                                    else ctx.lineTo(hexX, hexY)
+                                }
+                                ctx.closePath()
+                                ctx.fill()
+                                break
+                            case "star":
+                                ctx.beginPath()
+                                const starRadius = moduleSize / 2.5
+                                const centerXStar = x + moduleSize / 2
+                                const centerYStar = y + moduleSize / 2
+                                for (let i = 0; i < 10; i++) {
+                                    const angle = (i * Math.PI) / 5
+                                    const radius = i % 2 === 0 ? starRadius : starRadius / 2
+                                    const starX = centerXStar + radius * Math.cos(angle - Math.PI / 2)
+                                    const starY = centerYStar + radius * Math.sin(angle - Math.PI / 2)
+                                    if (i === 0) ctx.moveTo(starX, starY)
+                                    else ctx.lineTo(starX, starY)
+                                }
+                                ctx.closePath()
+                                ctx.fill()
+                                break
+                            case "cross":
+                                const crossSize = moduleSize * 0.8
+                                const crossThickness = moduleSize * 0.3
+                                const centerXCross = x + moduleSize / 2
+                                const centerYCross = y + moduleSize / 2
+                                // Horizontal bar
+                                ctx.fillRect(centerXCross - crossSize / 2, centerYCross - crossThickness / 2, crossSize, crossThickness)
+                                // Vertical bar
+                                ctx.fillRect(centerXCross - crossThickness / 2, centerYCross - crossSize / 2, crossThickness, crossSize)
+                                break
+                            case "plus":
+                                const plusSize = moduleSize * 0.7
+                                const plusThickness = moduleSize * 0.25
+                                const centerXPlus = x + moduleSize / 2
+                                const centerYPlus = y + moduleSize / 2
+                                const cornerRadius = plusThickness / 2
 
-  const resetForm = () => {
-    setUrl("");
-    setQrUrl("");
-    setIsError(false);
-  };
+                                // Horizontal bar with rounded ends
+                                ctx.beginPath()
+                                ctx.roundRect(
+                                    centerXPlus - plusSize / 2,
+                                    centerYPlus - plusThickness / 2,
+                                    plusSize,
+                                    plusThickness,
+                                    cornerRadius,
+                                )
+                                ctx.fill()
 
-  return (
-    <Card className="w-full max-w-xl mx-auto">
-      <CardHeader>
-        <CardTitle className="text-2xl font-bold text-center">
-          QR Code Generator
-        </CardTitle>
-        <CardDescription className="text-center">
-          Enter a URL to generate a QR code that you can download
-        </CardDescription>
-      </CardHeader>
+                                // Vertical bar with rounded ends
+                                ctx.beginPath()
+                                ctx.roundRect(
+                                    centerXPlus - plusThickness / 2,
+                                    centerYPlus - plusSize / 2,
+                                    plusThickness,
+                                    plusSize,
+                                    cornerRadius,
+                                )
+                                ctx.fill()
+                                break
+                        }
+                    }
+                }
+            }
+        },
+        [transparentBackground],
+    )
 
-      <Tabs defaultValue="generate" className="w-full">
-        <TabsList className="grid grid-cols-2 mx-6">
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="history">Recent</TabsTrigger>
-        </TabsList>
+    const generateQRCode = useCallback(async () => {
+        if (!text.trim()) {
+            toast.error("Missing text", {
+                description: "Please enter text or URL to generate QR code"
+            })
+            return
+        }
 
-        <TabsContent value="generate">
-          <CardContent className="space-y-6 pt-6">
-            <div className="space-y-2">
-              <Label htmlFor="url" className="text-sm font-medium">
-                Enter URL
-              </Label>
-              <div className="flex space-x-2">
-                <Input
-                  id="url"
-                  placeholder="https://example.com"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  className={isError ? "border-destructive" : ""}
-                  onKeyDown={(e) => e.key === "Enter" && generateQRCode()}
-                />
-                <Button onClick={generateQRCode} disabled={isGenerating}>
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Generating
-                    </>
-                  ) : (
-                    "Generate"
-                  )}
-                </Button>
-              </div>
-            </div>
+        setIsGenerating(true)
 
-            <QRCodeSettings
-              qrSize={qrSize}
-              setQrSize={setQrSize}
-              fgColor={fgColor}
-              setFgColor={setFgColor}
-              bgColor={bgColor}
-              setBgColor={setBgColor}
-              includeMargin={includeMargin}
-              setIncludeMargin={setIncludeMargin}
-            />
+        try {
+            const QRCode = (await import("qrcode")).default
 
-            <div className="flex justify-center" ref={qrRef}>
-              <AnimatePresence mode="wait">
-                {qrUrl ? (
-                  <motion.div
-                    key="qrcode"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    transition={{ duration: 0.3 }}
-                    className="border border-border rounded-lg p-6 bg-card"
-                  >
-                    <QRCodeCanvas
-                      value={qrUrl}
-                      size={qrSize}
-                      fgColor={fgColor}
-                      bgColor={bgColor}
-                      level="H"
-                      includeMargin={includeMargin}
-                      className="mx-auto"
-                      imageSettings={{
-                        src: "",
-                        x: 0,
-                        y: 0,
-                        height: 0,
-                        width: 0,
-                        excavate: true,
-                      }}
-                      style={{ shapeRendering: "geometricPrecision" }}
-                    />
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="placeholder"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="w-64 h-64 border border-dashed border-border rounded-lg flex items-center justify-center"
-                  >
-                    <div className="text-center text-muted-foreground">
-                      <LinkIcon className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                      <p>Enter a URL and click Generate</p>
+            const canvas = canvasRef.current
+            if (!canvas) return
+
+            const ctx = canvas.getContext("2d")
+            if (!ctx) return
+
+            const size = 1200
+            canvas.width = size
+            canvas.height = size
+
+            ctx.imageSmoothingEnabled = true
+            ctx.imageSmoothingQuality = "high"
+
+            const qrData = QRCode.create(text, {
+                errorCorrectionLevel: "H",
+            })
+
+            drawCustomQRCode(canvas, qrData, pattern, dotColor)
+
+            // Add logo if provided
+            if (logo && logoPreview) {
+                const logoImg = new window.Image()
+                logoImg.crossOrigin = "anonymous"
+
+                await new Promise((resolve, reject) => {
+                    logoImg.onload = resolve
+                    logoImg.onerror = reject
+                    logoImg.src = logoPreview
+                })
+
+                const tempCanvas = document.createElement("canvas")
+                const tempCtx = tempCanvas.getContext("2d")
+                if (!tempCtx) return
+
+                const originalWidth = logoImg.naturalWidth
+                const originalHeight = logoImg.naturalHeight
+                tempCanvas.width = originalWidth
+                tempCanvas.height = originalHeight
+
+                tempCtx.imageSmoothingEnabled = true
+                tempCtx.imageSmoothingQuality = "high"
+
+                tempCtx.drawImage(logoImg, 0, 0, originalWidth, originalHeight)
+
+                const maxLogoSize = size * 0.28
+                const logoAspectRatio = originalWidth / originalHeight
+
+                let logoWidth, logoHeight
+                if (logoAspectRatio > 1) {
+                    logoWidth = maxLogoSize
+                    logoHeight = maxLogoSize / logoAspectRatio
+                } else {
+                    logoHeight = maxLogoSize
+                    logoWidth = maxLogoSize * logoAspectRatio
+                }
+
+                const logoX = (size - logoWidth) / 2
+                const logoY = (size - logoHeight) / 2
+
+                if (!transparentBackground) {
+                    ctx.fillStyle = "#FFFFFF"
+                    ctx.beginPath()
+                    ctx.arc(size / 2, size / 2, maxLogoSize / 3 + 1, 0, 2 * Math.PI)
+                    ctx.fill()
+                }
+
+                ctx.shadowColor = "rgba(0, 0, 0, 0.1)"
+                ctx.shadowBlur = 8
+                ctx.shadowOffsetX = 0
+                ctx.shadowOffsetY = 2
+
+                ctx.save()
+                ctx.beginPath()
+                ctx.arc(size / 2, size / 2, maxLogoSize / 2, 0, 2 * Math.PI)
+                ctx.clip()
+
+                ctx.drawImage(tempCanvas, logoX, logoY, logoWidth, logoHeight)
+                ctx.restore()
+
+                ctx.shadowColor = "transparent"
+                ctx.shadowBlur = 0
+                ctx.shadowOffsetX = 0
+                ctx.shadowOffsetY = 0
+            }
+
+            const dataUrl = canvas.toDataURL("image/png", 1.0)
+            setQrCodeDataUrl(dataUrl)
+
+            toast.success("QR Code generated!", {
+                description: "Your high-quality QR code with logo has been created successfully."
+            })
+        } catch (error) {
+            console.error("Error generating QR code:", error)
+            toast.error("Generation failed", {
+                description: "Failed to generate QR code. Please try again."
+            })
+        } finally {
+            setIsGenerating(false)
+        }
+    }, [text, logo, logoPreview, pattern, dotColor, drawCustomQRCode, transparentBackground])
+
+    const downloadQRCode = useCallback(() => {
+        if (!qrCodeDataUrl) return
+
+        const link = document.createElement("a")
+        const filename = transparentBackground ? "qr-code-transparent.png" : "qr-code-with-logo.png"
+        link.download = filename
+        link.href = qrCodeDataUrl
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+
+        toast.success("Downloaded!", {
+            description: "QR code has been saved to your downloads."
+        })
+    }, [qrCodeDataUrl, transparentBackground])
+
+    return (
+        <div className="space-y-6">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <QrCode className="h-5 w-5" />
+                        Generate QR Code
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="text">Text or URL</Label>
+                        <Textarea
+                            id="text"
+                            placeholder="Enter text, URL, or any content for your QR code..."
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            rows={3}
+                        />
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </CardContent>
 
-          <CardFooter className="flex justify-center space-x-2 pt-0">
-            <Button variant="outline" onClick={resetForm} disabled={!qrUrl}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Reset
-            </Button>
-            <Button
-              onClick={copyToClipboard}
-              disabled={!qrUrl}
-              variant="secondary"
-            >
-              <Copy className="mr-2 h-4 w-4" />
-              Copy
-            </Button>
-            <Button onClick={handleDownload} disabled={!qrUrl}>
-              <Download className="mr-2 h-4 w-4" />
-              Download
-            </Button>
-          </CardFooter>
-        </TabsContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="pattern">Pattern Style</Label>
+                            <Select value={pattern} onValueChange={(value: PatternType) => setPattern(value)}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select pattern style" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="square">Square (Classic)</SelectItem>
+                                    <SelectItem value="rounded">Rounded Squares</SelectItem>
+                                    <SelectItem value="circle">Circles</SelectItem>
+                                    <SelectItem value="diamond">Diamonds</SelectItem>
+                                    <SelectItem value="dots">Small Dots</SelectItem>
+                                    <SelectItem value="hexagon">Hexagons</SelectItem>
+                                    <SelectItem value="star">Stars</SelectItem>
+                                    <SelectItem value="cross">Crosses</SelectItem>
+                                    <SelectItem value="plus">Plus Signs</SelectItem>
+                                    <SelectItem value="fluid">Fluid/Organic</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
 
-        <TabsContent value="history">
-          <RecentQRCodes
-            recentUrls={recentUrls}
-            setUrl={setUrl}
-            generateQRCode={generateQRCode}
-          />
-        </TabsContent>
-      </Tabs>
-    </Card>
-  );
+                        <div className="space-y-2">
+                            <Label htmlFor="color">Dot Color</Label>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    id="color"
+                                    type="color"
+                                    value={dotColor}
+                                    onChange={(e) => setDotColor(e.target.value)}
+                                    className="w-16 h-10 p-1 border rounded cursor-pointer"
+                                />
+                                <Input
+                                    type="text"
+                                    value={dotColor}
+                                    onChange={(e) => setDotColor(e.target.value)}
+                                    placeholder="#000000"
+                                    className="flex-1"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                        <Checkbox
+                            id="transparent"
+                            checked={transparentBackground}
+                            onCheckedChange={(checked) => setTransparentBackground(checked as boolean)}
+                        />
+                        <Label
+                            htmlFor="transparent"
+                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        >
+                            Transparent background
+                        </Label>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="logo">Logo (Optional)</Label>
+                        <div className="flex items-center gap-4">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="flex items-center gap-2"
+                            >
+                                <Upload className="h-4 w-4" />
+                                Upload Logo
+                            </Button>
+                            <Input ref={fileInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                            {logo && <span className="text-sm text-muted-foreground">{logo.name}</span>}
+                        </div>
+                        {logoPreview && (
+                            <div className="mt-2">
+                                <Image
+                                    src={logoPreview || "/placeholder.svg"}
+                                    alt="Logo preview"
+                                    width={64}
+                                    height={64}
+                                    className="object-contain border rounded"
+                                    unoptimized
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <Button onClick={generateQRCode} disabled={isGenerating || !text.trim()} className="w-full">
+                        {isGenerating ? "Generating..." : "Generate QR Code"}
+                    </Button>
+                </CardContent>
+            </Card>
+
+            {qrCodeDataUrl && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Your QR Code</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex justify-center">
+                            <div
+                                className={`border rounded-lg p-4 ${transparentBackground ? "bg-gray-100 bg-opacity-50" : "bg-white"}`}
+                            >
+                                <Image
+                                    src={qrCodeDataUrl || "/placeholder.svg"}
+                                    alt="Generated QR Code"
+                                    width={256}
+                                    height={256}
+                                    className="w-64 h-64"
+                                    unoptimized
+                                />
+                            </div>
+                        </div>
+                        <Button onClick={downloadQRCode} className="w-full flex items-center gap-2">
+                            <Download className="h-4 w-4" />
+                            Download QR Code
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
+            <canvas ref={canvasRef} className="hidden" />
+        </div>
+    )
 }
