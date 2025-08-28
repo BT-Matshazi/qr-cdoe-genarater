@@ -48,7 +48,6 @@ export function QRCodeGenerator() {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-
     const handleLogoUpload = useCallback(
         (event: React.ChangeEvent<HTMLInputElement>) => {
             const file = event.target.files?.[0]
@@ -101,12 +100,17 @@ export function QRCodeGenerator() {
                 for (let row = 0; row < moduleCount; row++) {
                     for (let col = 0; col < moduleCount; col++) {
                         if (qrData.modules.get(row, col)) {
-                            const centerX = moduleCount / 2
-                            const centerY = moduleCount / 2
-                            const logoRadius = moduleCount * 0.2
-                            const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
+                            // Only skip center modules if logo is present
+                            if (logo && logoPreview) {
+                                const centerX = moduleCount / 2
+                                const centerY = moduleCount / 2
+                                const logoRadius = moduleCount * 0.2
+                                const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
 
-                            if (distance >= logoRadius) {
+                                if (distance >= logoRadius) {
+                                    activeModules.add(`${row},${col}`)
+                                }
+                            } else {
                                 activeModules.add(`${row},${col}`)
                             }
                         }
@@ -124,9 +128,6 @@ export function QRCodeGenerator() {
                             // Check for adjacent modules and create flowing connections
                             const hasRight = activeModules.has(`${row},${col + 1}`)
                             const hasDown = activeModules.has(`${row + 1},${col}`)
-                            // These variables are used for future enhancements
-                            // const hasLeft = activeModules.has(`${row},${col - 1}`)
-                            // const hasUp = activeModules.has(`${row - 1},${col}`)
 
                             // Draw rounded rectangle for the module
                             ctx.roundRect(
@@ -169,13 +170,15 @@ export function QRCodeGenerator() {
                         const x = margin + col * moduleSize
                         const y = margin + row * moduleSize
 
-                        // Skip drawing in the center area where logo will be placed
-                        const centerX = moduleCount / 2
-                        const centerY = moduleCount / 2
-                        const logoRadius = moduleCount * 0.2
-                        const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
+                        // Skip drawing in the center area only if logo is present
+                        if (logo && logoPreview) {
+                            const centerX = moduleCount / 2
+                            const centerY = moduleCount / 2
+                            const logoRadius = moduleCount * 0.2
+                            const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
 
-                        if (distance < logoRadius) continue
+                            if (distance < logoRadius) continue
+                        }
 
                         // Draw different patterns with high precision
                         switch (pattern) {
@@ -282,7 +285,7 @@ export function QRCodeGenerator() {
                 }
             }
         },
-        [transparentBackground],
+        [transparentBackground, logo, logoPreview],
     )
 
     const generateQRCode = useCallback(async () => {
@@ -387,7 +390,7 @@ export function QRCodeGenerator() {
             setQrCodeDataUrl(dataUrl)
 
             toast.success("QR Code generated!", {
-                description: "Your high-quality QR code with logo has been created successfully."
+                description: "Your high-quality QR code has been created successfully."
             })
         } catch (error) {
             console.error("Error generating QR code:", error)
@@ -403,7 +406,7 @@ export function QRCodeGenerator() {
         if (!qrCodeDataUrl) return
 
         const link = document.createElement("a")
-        const filename = transparentBackground ? "qr-code-transparent.png" : "qr-code-with-logo.png"
+        const filename = transparentBackground ? "qr-code-transparent.png" : "qr-code.png"
         link.download = filename
         link.href = qrCodeDataUrl
         document.body.appendChild(link)
@@ -536,7 +539,7 @@ export function QRCodeGenerator() {
                     <CardContent className="space-y-4">
                         <div className="flex justify-center">
                             <div
-                                className={`border rounded-lg p-4 ${transparentBackground ? "bg-gray-100 bg-opacity-50" : "bg-white"}`}
+                                className={`Rounded border-lg p-4 ${transparentBackground ? "bg-gray-100 bg-opacity-50" : "bg-white"}`}
                             >
                                 <Image
                                     src={qrCodeDataUrl || "/placeholder.svg"}
