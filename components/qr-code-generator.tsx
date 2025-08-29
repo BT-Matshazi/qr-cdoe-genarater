@@ -45,6 +45,7 @@ export function QRCodeGenerator() {
     const [pattern, setPattern] = useState<PatternType>("square")
     const [dotColor, setDotColor] = useState("#000000")
     const [transparentBackground, setTransparentBackground] = useState(false)
+    const [downloadFormat, setDownloadFormat] = useState<"png" | "svg">("png")
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -402,21 +403,217 @@ export function QRCodeGenerator() {
         }
     }, [text, logo, logoPreview, pattern, dotColor, drawCustomQRCode, transparentBackground])
 
-    const downloadQRCode = useCallback(() => {
+    const generateSVG = useCallback((qrData: QRCodeType, pattern: PatternType, color: string): string => {
+        const size = 1200
+        const margin = 96
+        const qrSize = size - margin * 2
+        const moduleCount = qrData.modules.size
+        const moduleSize = qrSize / moduleCount
+
+        let svgContent = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">`
+        
+        if (!transparentBackground) {
+            svgContent += `<rect width="${size}" height="${size}" fill="#FFFFFF"/>`
+        }
+
+        if (pattern === "fluid") {
+            // Create a map of active modules for fluid pattern
+            const activeModules = new Set<string>()
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (qrData.modules.get(row, col)) {
+                        // Only skip center modules if logo is present
+                        if (logo && logoPreview) {
+                            const centerX = moduleCount / 2
+                            const centerY = moduleCount / 2
+                            const logoRadius = moduleCount * 0.2
+                            const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
+
+                            if (distance >= logoRadius) {
+                                activeModules.add(`${row},${col}`)
+                            }
+                        } else {
+                            activeModules.add(`${row},${col}`)
+                        }
+                    }
+                }
+            }
+
+            // Draw fluid connections
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (activeModules.has(`${row},${col}`)) {
+                        const x = margin + col * moduleSize + moduleSize / 2
+                        const y = margin + row * moduleSize + moduleSize / 2
+
+                        // Check for adjacent modules and create flowing connections
+                        const hasRight = activeModules.has(`${row},${col + 1}`)
+                        const hasDown = activeModules.has(`${row + 1},${col}`)
+
+                        // Draw rounded rectangle for the module
+                        svgContent += `<rect x="${x - moduleSize * 0.4}" y="${y - moduleSize * 0.4}" width="${moduleSize * 0.8}" height="${moduleSize * 0.8}" rx="${moduleSize * 0.2}" fill="${color}"/>`
+
+                        // Add connecting bridges to adjacent modules
+                        if (hasRight) {
+                            svgContent += `<rect x="${x + moduleSize * 0.2}" y="${y - moduleSize * 0.15}" width="${moduleSize * 0.6}" height="${moduleSize * 0.3}" rx="${moduleSize * 0.1}" fill="${color}"/>`
+                        }
+                        if (hasDown) {
+                            svgContent += `<rect x="${x - moduleSize * 0.15}" y="${y + moduleSize * 0.2}" width="${moduleSize * 0.3}" height="${moduleSize * 0.6}" rx="${moduleSize * 0.1}" fill="${color}"/>`
+                        }
+                    }
+                }
+            }
+        } else {
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (qrData.modules.get(row, col)) {
+                        const x = margin + col * moduleSize
+                        const y = margin + row * moduleSize
+
+                        // Skip drawing in the center area only if logo is present
+                        if (logo && logoPreview) {
+                            const centerX = moduleCount / 2
+                            const centerY = moduleCount / 2
+                            const logoRadius = moduleCount * 0.2
+                            const distance = Math.sqrt((col - centerX) ** 2 + (row - centerY) ** 2)
+
+                            if (distance < logoRadius) continue
+                        }
+
+                        // Draw different patterns
+                        switch (pattern) {
+                            case "square":
+                                svgContent += `<rect x="${x}" y="${y}" width="${moduleSize}" height="${moduleSize}" fill="${color}"/>`
+                                break
+                            case "rounded":
+                                const radius = moduleSize * 0.3
+                                svgContent += `<rect x="${x}" y="${y}" width="${moduleSize}" height="${moduleSize}" rx="${radius}" fill="${color}"/>`
+                                break
+                            case "circle":
+                                svgContent += `<circle cx="${x + moduleSize / 2}" cy="${y + moduleSize / 2}" r="${moduleSize / 2.2}" fill="${color}"/>`
+                                break
+                            case "diamond":
+                                const points = `${x + moduleSize / 2},${y} ${x + moduleSize},${y + moduleSize / 2} ${x + moduleSize / 2},${y + moduleSize} ${x},${y + moduleSize / 2}`
+                                svgContent += `<polygon points="${points}" fill="${color}"/>`
+                                break
+                            case "dots":
+                                svgContent += `<circle cx="${x + moduleSize / 2}" cy="${y + moduleSize / 2}" r="${moduleSize / 3}" fill="${color}"/>`
+                                break
+                            case "hexagon":
+                                const hexRadius = moduleSize / 2.5
+                                const centerXHex = x + moduleSize / 2
+                                const centerYHex = y + moduleSize / 2
+                                let hexPoints = ""
+                                for (let i = 0; i < 6; i++) {
+                                    const angle = (i * Math.PI) / 3
+                                    const hexX = centerXHex + hexRadius * Math.cos(angle)
+                                    const hexY = centerYHex + hexRadius * Math.sin(angle)
+                                    hexPoints += `${hexX},${hexY} `
+                                }
+                                svgContent += `<polygon points="${hexPoints.trim()}" fill="${color}"/>`
+                                break
+                            case "star":
+                                const starRadius = moduleSize / 2.5
+                                const centerXStar = x + moduleSize / 2
+                                const centerYStar = y + moduleSize / 2
+                                let starPoints = ""
+                                for (let i = 0; i < 10; i++) {
+                                    const angle = (i * Math.PI) / 5
+                                    const radius = i % 2 === 0 ? starRadius : starRadius / 2
+                                    const starX = centerXStar + radius * Math.cos(angle - Math.PI / 2)
+                                    const starY = centerYStar + radius * Math.sin(angle - Math.PI / 2)
+                                    starPoints += `${starX},${starY} `
+                                }
+                                svgContent += `<polygon points="${starPoints.trim()}" fill="${color}"/>`
+                                break
+                            case "cross":
+                                const crossSize = moduleSize * 0.8
+                                const crossThickness = moduleSize * 0.3
+                                const centerXCross = x + moduleSize / 2
+                                const centerYCross = y + moduleSize / 2
+                                // Horizontal bar
+                                svgContent += `<rect x="${centerXCross - crossSize / 2}" y="${centerYCross - crossThickness / 2}" width="${crossSize}" height="${crossThickness}" fill="${color}"/>`
+                                // Vertical bar
+                                svgContent += `<rect x="${centerXCross - crossThickness / 2}" y="${centerYCross - crossSize / 2}" width="${crossThickness}" height="${crossSize}" fill="${color}"/>`
+                                break
+                            case "plus":
+                                const plusSize = moduleSize * 0.7
+                                const plusThickness = moduleSize * 0.25
+                                const centerXPlus = x + moduleSize / 2
+                                const centerYPlus = y + moduleSize / 2
+                                const cornerRadius = plusThickness / 2
+
+                                // Horizontal bar with rounded ends
+                                svgContent += `<rect x="${centerXPlus - plusSize / 2}" y="${centerYPlus - plusThickness / 2}" width="${plusSize}" height="${plusThickness}" rx="${cornerRadius}" fill="${color}"/>`
+                                // Vertical bar with rounded ends
+                                svgContent += `<rect x="${centerXPlus - plusThickness / 2}" y="${centerYPlus - plusSize / 2}" width="${plusThickness}" height="${plusSize}" rx="${cornerRadius}" fill="${color}"/>`
+                                break
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add logo if provided (simplified for SVG)
+        if (logo && logoPreview) {
+            const maxLogoSize = size * 0.28
+            const logoRadius = maxLogoSize / 2
+            
+            if (!transparentBackground) {
+                svgContent += `<circle cx="${size / 2}" cy="${size / 2}" r="${maxLogoSize / 3 + 1}" fill="#FFFFFF"/>`
+            }
+            
+            svgContent += `<defs><clipPath id="logoClip"><circle cx="${size / 2}" cy="${size / 2}" r="${logoRadius}"/></clipPath></defs>`
+            svgContent += `<image href="${logoPreview}" x="${size / 2 - logoRadius}" y="${size / 2 - logoRadius}" width="${logoRadius * 2}" height="${logoRadius * 2}" clip-path="url(#logoClip)"/>`
+        }
+
+        svgContent += '</svg>'
+        return svgContent
+    }, [transparentBackground, logo, logoPreview])
+
+    const downloadQRCode = useCallback(async () => {
         if (!qrCodeDataUrl) return
 
         const link = document.createElement("a")
-        const filename = transparentBackground ? "qr-code-transparent.png" : "qr-code.png"
-        link.download = filename
-        link.href = qrCodeDataUrl
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
+        
+        if (downloadFormat === "svg") {
+            try {
+                const QRCode = (await import("qrcode")).default
+                const qrData = QRCode.create(text, {
+                    errorCorrectionLevel: "H",
+                })
+                
+                const svgContent = generateSVG(qrData, pattern, dotColor)
+                const blob = new Blob([svgContent], { type: "image/svg+xml" })
+                const url = URL.createObjectURL(blob)
+                
+                const filename = transparentBackground ? "qr-code-transparent.svg" : "qr-code.svg"
+                link.download = filename
+                link.href = url
+                document.body.appendChild(link)
+                link.click()
+                document.body.removeChild(link)
+                URL.revokeObjectURL(url)
+            } catch (error) {
+                console.error("Error generating SVG:", error)
+                toast.error("Download failed", {
+                    description: "Failed to generate SVG. Please try again."
+                })
+                return
+            }
+        } else {
+            const filename = transparentBackground ? "qr-code-transparent.png" : "qr-code.png"
+            link.download = filename
+            link.href = qrCodeDataUrl
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+        }
 
         toast.success("Downloaded!", {
-            description: "QR code has been saved to your downloads."
+            description: `QR code has been saved as ${downloadFormat.toUpperCase()} to your downloads.`
         })
-    }, [qrCodeDataUrl, transparentBackground])
+    }, [qrCodeDataUrl, transparentBackground, downloadFormat, generateSVG, text, pattern, dotColor])
 
     return (
         <div className="space-y-6">
@@ -482,18 +679,33 @@ export function QRCodeGenerator() {
                         </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
-                        <Checkbox
-                            id="transparent"
-                            checked={transparentBackground}
-                            onCheckedChange={(checked) => setTransparentBackground(checked as boolean)}
-                        />
-                        <Label
-                            htmlFor="transparent"
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                        >
-                            Transparent background
-                        </Label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="flex items-center space-x-2">
+                            <Checkbox
+                                id="transparent"
+                                checked={transparentBackground}
+                                onCheckedChange={(checked) => setTransparentBackground(checked as boolean)}
+                            />
+                            <Label
+                                htmlFor="transparent"
+                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                            >
+                                Transparent background
+                            </Label>
+                        </div>
+                        
+                        <div className="space-y-2">
+                            <Label htmlFor="format">Download Format</Label>
+                            <Select value={downloadFormat} onValueChange={(value: "png" | "svg") => setDownloadFormat(value)}>
+                                <SelectTrigger id="format">
+                                    <SelectValue placeholder="Select download format" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="png">PNG (1200×1200)</SelectItem>
+                                    <SelectItem value="svg">SVG (Vector)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
 
                     <div className="space-y-2">
@@ -553,7 +765,7 @@ export function QRCodeGenerator() {
                         </div>
                         <Button onClick={downloadQRCode} className="w-full flex items-center gap-2">
                             <Download className="h-4 w-4" />
-                            Download QR Code
+                            Download as {downloadFormat.toUpperCase()}
                         </Button>
                     </CardContent>
                 </Card>
